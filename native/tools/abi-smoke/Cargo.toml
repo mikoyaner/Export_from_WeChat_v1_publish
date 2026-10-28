@@ -1,0 +1,13 @@
+[package]
+name = "abi-smoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+libloading = "0.8"
+serde_json.workspace = true
+rusqlite.workspace = true
+weflow-core.workspace = true
+anyhow.workspace = true

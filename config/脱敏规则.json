@@ -1,0 +1,149 @@
+{
+  "name": "AI微信回复助手 · 本地脱敏规则表",
+  "version": "1.0",
+  "updated": "2026-10-17",
+  "scope": "仅作用于发往云端API的文本；本地模型模式可将 skip_all 设为 true 整体跳过",
+  "skip_all": false,
+  "match_order": ["dictionary", "regex"],
+  "placeholder_mode": "stable_in_session",
+  "placeholder_note": "同一词在本轮上下文内始终映射为同一占位符（如[人物1]），保持AI对指代对象的区分能力；映射不可逆",
+  "dictionaries": [
+    {
+      "id": "persons",
+      "file": "脱敏词表-人名与备注名.txt",
+      "placeholder": "[人物{n}]",
+      "match": "最长优先精确匹配，忽略大小写与全半角差异",
+      "enabled": true
+    },
+    {
+      "id": "orgs",
+      "file": "脱敏词表-组织与项目代号.txt",
+      "placeholder": "[组织{n}]",
+      "match": "最长优先精确匹配",
+      "enabled": true
+    },
+    {
+      "id": "places",
+      "file": "脱敏词表-地名与地址.txt",
+      "placeholder": "[地点{n}]",
+      "match": "最长优先精确匹配",
+      "enabled": true
+    }
+  ],
+  "regex_rules": [
+    {
+      "id": "phone_cn",
+      "name": "中国大陆手机号",
+      "pattern": "(?<!\\d)(1[3-9]\\d)(\\d{4})(\\d{4})(?!\\d)",
+      "replace": "\\1****\\3",
+      "enabled": true,
+      "note": "保留前3后4便于识别是号码但不可反推；号码中间带空格/连字符的写法出现频率低，如遇到再补变体规则"
+    },
+    {
+      "id": "phone_cn_sep",
+      "name": "中国大陆手机号（带空格/连字符）",
+      "pattern": "(?<!\\d)(1[3-9]\\d)[ \\t\\u3000\\-－—.·]{1,2}(\\d{4})[ \\t\\u3000\\-－—.·]{1,2}(\\d{4})(?!\\d)",
+      "replace": "\\1****\\3",
+      "enabled": true,
+      "note": "严格形态：1[3-9]x + 分隔 + 4 位 + 分隔 + 4 位，至少一处分隔。既覆盖 138 1234 5678 / 138-1234-5678，又不会把日期、订单号这类连续数字串误吞（分隔符限定为空格/连字符/点/间隔号，不含换行）"
+    },
+    {
+      "id": "id_card",
+      "name": "18位身份证号",
+      "pattern": "(?<![0-9Xx])(\\d{6})\\d{8}(\\d{3}[0-9Xx])(?![0-9Xx])",
+      "replace": "\\1********\\2",
+      "enabled": true,
+      "note": "保留地区码前6位与末4位"
+    },
+    {
+      "id": "bank_card",
+      "name": "16-19位银行卡号",
+      "pattern": "(?<!\\d)(\\d{4})\\d{8,11}(\\d{4})(?!\\d)",
+      "replace": "\\1****\\2",
+      "enabled": true,
+      "note": "可能误伤长订单号/流水号；被误伤时该条消息可人工放行，不建议为此关闭整条规则"
+    },
+    {
+      "id": "email",
+      "name": "电子邮箱",
+      "pattern": "([A-Za-z0-9._%+\\-])[A-Za-z0-9._%+\\-]*(@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,})",
+      "replace": "\\1***\\2",
+      "enabled": true,
+      "note": "保留首字符与域名"
+    },
+    {
+      "id": "password_like",
+      "name": "密码/验证码类",
+      "pattern": "(?i)(密码|口令|验证码|动态码|password|pwd|auth\\s?code)\\s*[:：=]?\\s*\\S{4,24}",
+      "replace": "\\1[已脱敏]",
+      "enabled": true,
+      "note": "微信聊天里的验证码多为6位数字，此前置关键词规则比裸数字规则误伤小"
+    },
+    {
+      "id": "vehicle_plate",
+      "name": "大陆车牌号",
+      "pattern": "[京津冀晋蒙辽吉黑沪苏浙皖闽赣鲁豫鄂湘粤桂琼渝川贵云藏陕甘青宁新使][A-Z][A-HJ-NP-Z0-9]{4,6}",
+      "replace": "[车牌]",
+      "enabled": true,
+      "note": "兼容5~6位尾号（含新能源）"
+    },
+    {
+      "id": "qq_no",
+      "name": "QQ号（需关键词触发）",
+      "pattern": "(?i)((?:QQ|q群|群号)\\D{0,3})(\\d{5,12})",
+      "replace": "\\1[号码]",
+      "enabled": true,
+      "note": "必须带QQ/群号等触发词，避免裸数字规则"
+    },
+    {
+      "id": "wxid",
+      "name": "微信原始ID（wxid_）",
+      "pattern": "(?<![A-Za-z0-9_])(wxid_)[A-Za-z0-9_]{4,}",
+      "replace": "[ID]",
+      "enabled": true,
+      "note": "微信账号原始ID是硬标识符，正文/转发达人常内嵌他人 wxid，属红线（他人身份出境），必须整段替换；前缀 wxid_ 无信息量可丢"
+    },
+    {
+      "id": "chatroom_id",
+      "name": "群原始ID（@chatroom）",
+      "pattern": "[A-Za-z0-9_\\-]+@chatroom",
+      "replace": "[群ID]",
+      "enabled": true,
+      "note": "群聊 talker id 是标识符；会话名已在人名桶处理，这里兜底正文里裸露的 xxx@chatroom"
+    },
+    {
+      "id": "official_account_id",
+      "name": "公众号原始ID（gh_）",
+      "pattern": "(?<![A-Za-z0-9_])(gh_)[A-Za-z0-9]{6,}",
+      "replace": "[公众号ID]",
+      "enabled": true,
+      "note": "gh_ 开头是公众号原始ID，标识符，整段替换"
+    },
+    {
+      "id": "ip_addr",
+      "name": "IP地址",
+      "pattern": "(?<!\\d)(\\d{1,3})\\.\\d{1,3}\\.\\d{1,3}\\.(\\d{1,3})(?!\\d)",
+      "replace": "\\1.*.*.\\2",
+      "enabled": false,
+      "note": "默认关闭：会误伤版本号/日期/分数；与工作场景相关再开"
+    },
+    {
+      "id": "money",
+      "name": "金额",
+      "pattern": "([¥￥]?)(\\d[\\d,]*(?:\\.\\d+)?)(\\s*(?:万|亿)?(?:元|块|块钱))",
+      "replace": "[金额]\\3",
+      "enabled": false,
+      "note": "默认关闭：借贷/报价场景金额是回复必需信息，脱了AI没法出建议；仅涉及敏感财务对话时临时开启"
+    }
+  ],
+  "test_samples": [
+    "我手机13812345678，你直接打给我",
+    "身份证：320102199001011234",
+    "卡号6222020200112233445，收款码发你了",
+    "邮箱 zhang.san@example.com 你发这里吧",
+    "密码是 abcd1234，验证码 830291",
+    "苏A12345停在地库了",
+    "QQ3456789 加我"
+  ],
+  "expected_behavior": "以上样本应分别保留可识别的碎片信息而非整段删除；若某条规则整段吞字，先降低该条replace的捕获组引用"
+}

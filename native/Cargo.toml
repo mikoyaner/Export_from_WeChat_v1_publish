@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "shared/weflow-core",
+    "wcdb-native",
+    "image-decrypt-addon",
+    "welive-export",
+    "key-provider",
+    "reply-exporter",
+    "tools/abi-smoke",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+hex = "0.4"
+md5 = "0.7"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+napi = { version = "2", features = ["napi8"] }
+napi-derive = "2"
+napi-build = "2"
+weflow-core = { path = "shared/weflow-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,20 @@
+[package]
+name = "welive-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "welive-export"
+path = "src/main.rs"
+
+[dependencies]
+weflow-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+md5.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "key-provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "key-provider"
+path = "src/main.rs"
+
+[dependencies]
+weflow-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
+

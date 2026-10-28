@@ -1,0 +1,9 @@
+{
+  "name": "reply-feishu-entry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 微信回复助手的飞书长连接入口（依赖随本目录安装，换电脑直接拷目录）",
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.76.0"
+  }
+}

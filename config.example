@@ -1,0 +1,97 @@
+# AI 微信回复助手 · 本机环境变量样例（复制为真实 env 或写入本机配置，勿入库）
+#
+# 用法（Git Bash）： export $(grep -v '^#' config.example | xargs)  或逐条 export。
+# PowerShell： $env:REPLY_LLM_API_KEY="..." 等。密钥只存本机，绝不写进代码仓库/日志明文。
+
+# —— 数据与组件路径 ——
+# 规则放项目 config/；相对路径按项目根解析，不按当前工作目录
+REPLY_CONFIG_DIR=config
+# 人名词表留在项目外（含真实姓名）：填你自己的目录；不填则退回 REPLY_CONFIG_DIR
+REPLY_WORDLIST_DIR=
+# 微信数据根（必填）：形如 <盘符>:/xwechat_files；支持绝对路径、%USERPROFILE%、相对项目根
+REPLY_DATA_ROOT=
+
+# 项目内脚本/二进制默认按项目根自动解析，通常不需要填：
+# REPLY_KEYSCAN_PY=keyscan_readonly.py
+# REPLY_EXPORTER_BIN=bin/reply-exporter.exe
+# WEFLOW_FFMPEG=bin/ffmpeg.exe
+# REPLY_IMGHELPER_DLL=bin/img_helper.dll
+# 改 Rust 后：cd native && cargo build --release -p reply-exporter（需 Strawberry Perl + NASM 在 PATH，见 native/README）
+#             cp target/release/reply-exporter.exe ../bin/reply-exporter.exe
+
+# —— 云端 AI ①：纯文本模型（OpenAI 兼容；填了才会真调用，否则 pipeline 走"壳子"打印 prompt）——
+REPLY_LLM_BASE_URL=https://api.deepseek.com/v1
+REPLY_LLM_API_KEY=
+REPLY_LLM_MODEL=deepseek-chat
+# —— 生成参数（推理模型的"思考"token 也算在 max_tokens 里，给小了会返回空 content）——
+# 实测（10-21，deepseek-v4-pro，输入 10181 字）：思考单独吃满 8000/8000、finish=length、正文为空。
+# 判据在 logs/media_diag.log 的 `llm usage … reasoning=` 与 `llm empty_content …` 行里。
+# A/B/C 建议 3000 起（短），关系分析报告要 16000 起（长 + 思考余量）。
+REPLY_LLM_MAX_TOKENS=3000
+REPLY_ANALYSIS_MAX_TOKENS=16000
+# 1 = 关系分析不思考、直接写正文（省一次慢调用与思考的 token）。空内容时程序会自动反向再试一次，
+# 所以这条不是"必须开才能出结果"，只是决定第一次走哪条路。
+REPLY_ANALYSIS_DISABLE_THINKING=0
+# 分析单次限时（思考+正文比 A/B/C 慢得多，默认 360s）
+REPLY_ANALYSIS_TIMEOUT_S=360
+
+# —— 云端 AI ②：多模态模型（独立一套 key，文本模型看不到图，由它先出图片文字描述）——
+# 不配也能跑：本轮没有图片观察，prompt 里写明「无图片观察」。
+REPLY_VLM_BASE_URL=
+REPLY_VLM_API_KEY=
+REPLY_VLM_MODEL=
+# 单次最多发几个「图片+表情」候选（代码默认 12；0 = 彻底禁用多模态）。
+# 超出上限不静默丢：状态行会写「另有 N 个候选超出上限没送」。
+REPLY_VLM_MAX_IMAGES=12
+# 每批几张（默认 4）。一批一次请求，编号全局连续（第二批从 图片 5 开始）。
+# 耗时≈批数×推理模型单批时间，实测 12 张分 3 批 = 206s。
+REPLY_VLM_BATCH_SIZE=4
+# 单图 / 总量字节上限（默认 4MB / 12MB）：超了这张不发，状态里会写"几张超上限未发"。
+# 手机原图 base64 后能到十几 MB，既烧配额，也把隐私面一次放大到整张 4K 截图。
+REPLY_VLM_MAX_IMAGE_BYTES=4194304
+REPLY_VLM_MAX_TOTAL_BYTES=12582912
+# ⚠ 图片没法像文本那样先脱敏（人脸、头像、截图里的姓名手机号都在像素里），
+# 与红线「数据出境先脱敏」冲突，所以必须显式同意才发图片字节。
+# 本机现值=1（用户 10-18 明确同意开）。想临时关掉就改回 0，或 REPLY_VLM_MAX_IMAGES=0。
+REPLY_VLM_ALLOW_IMAGE_EXIT=1
+
+# —— 结果回程：企业微信群机器人 webhook（填了才会推送；markdown 超 4096 字节自动截断）——
+REPLY_WECOM_WEBHOOK=
+
+# —— 语音离线转写（依赖已随包在 ./vendor，正常什么都不用填）——
+# 查找顺序：下面这些显式变量 > ./vendor > WEFLOW_ROOT。整目录拷到新电脑就能跑。
+# REPLY_NODE_BIN=node
+# REPLY_VOICE2TEXT_JS=<项目目录>/voice2text.cjs
+# SHERPA_NODE_MODULES=          # 覆盖 node_modules 来源
+# SENSEVOICE_DIR=               # 覆盖模型目录
+# WEFLOW_ROOT=                  # vendor 缺失时的退回来源（指向 WeFlow 目录，可选）
+
+# —— 出境规模与超时闸门（默认可用；调大等于把更多私聊内容发给云端）——
+# 单次上下文条数上限，命令里写更大也按这个截（默认 1000，硬顶也是 1000；被截时状态行会写"要 N→实际 M"）
+REPLY_MAX_MESSAGES=1000
+# 导出器卡死保护（秒，超时连 ffmpeg 等子进程一起杀，默认 180）
+REPLY_EXPORTER_TIMEOUT_S=180
+# 只读内存扫描取密钥的超时（秒，默认 900）
+REPLY_KEYSCAN_TIMEOUT_S=900
+# 导出器内部把 wxgf 动图转 JPG 用的 ffmpeg 超时（毫秒，默认 25000；超时这张图原样落 .wxgf）
+REPLY_FFMPEG_TIMEOUT_MS=25000
+
+# —— 飞书长连接入口（node feishu_ws.cjs 用；本机不需要公网 IP）——
+# 应用后台要做三件事：开通机器人能力、权限 im:message（收+发）、
+# 「事件订阅 → 使用长连接」并订阅 im.message.receive_v1。
+REPLY_FEISHU_APP_ID=
+REPLY_FEISHU_APP_SECRET=
+# 白名单必填（逗号分隔 open_id）：没白名单=任何同事都能驱动你的微信导出链路，程序会拒绝启动。
+# 第一次可先填占位值 o_todo，给机器人发一条消息，从日志「忽略消息（sender_not_allowed）open_id=…」抄真值。
+REPLY_FEISHU_ALLOW_OPEN_IDS=
+# 群聊默认不响应（状态行里的联系人显示名会让全群看见）。确实要在群里用，才填群 chat_id：
+# REPLY_FEISHU_ALLOW_GROUP_CHAT_IDS=oc_xxxxxxxx
+# REPLY_PY_BIN=python.exe
+# 单条链路总超时（毫秒，默认 900000=15 分钟）：超时连导出子进程一起杀。
+# pipeline 会按"离这条线还剩多少秒"夹紧各步超时，剩不够就跳过并在状态里说明，
+# 所以调小它是安全的（不会半路被硬杀在花钱之后）。
+# REPLY_BRIDGE_TIMEOUT_MS=900000
+# 并发闸门：最多同时跑几条链路；再多进队列；队列也满就当场回"先不接"
+REPLY_MAX_CONCURRENCY=3
+REPLY_MAX_QUEUE=3
+

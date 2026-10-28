@@ -1,0 +1,32 @@
+# 本机密钥/凭据，绝不进仓库、绝不发布
+.env
+*.env
+!config.example
+
+# 运行产物
+__pycache__/
+*.pyc
+logs/
+node_modules/
+package-lock.json.bak
+
+# 语音 ASR 随包依赖（~250MB 二进制 + 模型）。刻意不进 git：
+# 交付时作为独立目录随包拷贝，或用安装脚本拉取；提交进仓库会让仓库膨胀到不可用。
+vendor/
+
+# 随包原生二进制（reply-exporter.exe / ffmpeg.exe），与 vendor 同理不进 git
+bin/
+
+# Rust 源码树的构建缓存与便携 Perl
+native/target/
+native/.tools/
+
+# 密钥扫描临时输出（含微信库明文密钥）
+native/.scratch/
+
+# 联系人档案（个人隐私，绝不入库）
+联系人档案/
+
+# 不发布的内部文档（公开仓库不该带开发日志与内部评审记录）
+worklog.md
+需求文档V3.4-修订建议.md

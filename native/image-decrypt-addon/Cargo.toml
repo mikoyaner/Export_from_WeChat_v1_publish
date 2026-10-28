@@ -1,0 +1,16 @@
+[package]
+name = "image-decrypt-addon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+napi.workspace = true
+napi-derive.workspace = true
+weflow-core.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
