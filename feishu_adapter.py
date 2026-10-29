@@ -36,13 +36,17 @@ _last_name: Optional[str] = None
 _last_sid: Optional[str] = None
 _last_members: list = []
 _last_n: int = 0
+# 「补图」的意图必须跨「同名歧义 → 回编号」活下来：以前它只活在这一次函数调用的局部变量里，
+# 用户选了编号就退化成普通回复（静默不补图，状态行也不提），真机链路会让人以为补过了。
+_last_media_once: bool = False
 _last_unlisted: list = []
 last_result: Optional[dict] = None
 _loaded = False
 
 
 def _load_state() -> None:
-    global _last_candidates, _last_name, _last_sid, _last_members, _last_n, _last_unlisted, _loaded
+    global _last_candidates, _last_name, _last_sid, _last_members, _last_n, _last_unlisted
+    global _last_media_once, _loaded
     _loaded = True
     try:
         with open(STATE_PATH, encoding="utf-8") as f:
@@ -55,6 +59,7 @@ def _load_state() -> None:
         _last_members = s.get("members") or []
         _last_n = int(s.get("n") or 0)
         _last_unlisted = s.get("unlisted") or []
+        _last_media_once = bool(s.get("media_once"))
     except (OSError, ValueError):
         pass
 
@@ -69,6 +74,7 @@ def _save_state() -> None:
             json.dump({"ts": time.time(), "candidates": _last_candidates,
                        "name": _last_name, "sid": _last_sid, "members": _last_members,
                        "n": _last_n,
+                       "media_once": _last_media_once,
                        "unlisted": _last_unlisted},
                       ensure_ascii=False, fp=f)
         os.replace(tmp, STATE_PATH)
@@ -271,6 +277,8 @@ def _summary(res: dict) -> str:
         bits.append(f"其中我 {st['mine']} 条、对方 {st['others']} 条")
     if st.get("targets"):
         bits.append("本轮只针对：" + "、".join(st["targets"]))
+    if v.get("read_failed"):
+        bits.append(f"⚠ {v['read_failed']} 张图片本机读取失败（已跳过，其余照常解读）")
     if v.get("skipped_oversized"):
         bits.append(f"图片 {v['skipped_oversized']} 张超字节上限未发（见 REPLY_VLM_MAX_IMAGE_BYTES）")
     if v.get("batches"):
@@ -476,7 +484,8 @@ def _acct_note(res: dict) -> str:
 
 
 def handle_command(text: str) -> str:
-    global _last_candidates, _last_name, _last_sid, _last_members, _last_n, _last_unlisted, last_result
+    global _last_candidates, _last_name, _last_sid, _last_members, _last_n, _last_unlisted
+    global _last_media_once, last_result
     if not _loaded:
         _load_state()
     kind, *rest = _parse(text)
@@ -584,6 +593,7 @@ def handle_command(text: str) -> str:
         # 条数要跨「选编号 / 补昵称 / 重扫 / refine」保留：以前这些重跑都用 N_DEFAULT，
         # 用户要 1000、选了候选之后实际只导 30 条，且没有任何提示。
         _last_n = n_req
+        _last_media_once = media_once
         n = pipeline.clamp_n(n_req)
         res = pipeline.run_reply(name, n, members=members, media_once=media_once)
         last_result = res
@@ -593,7 +603,8 @@ def handle_command(text: str) -> str:
             _last_name = None
             _last_sid = None
             _save_state()
-            return _candidates_reply(_last_candidates)
+            return _candidates_reply(_last_candidates) + (
+                "\n（选编号后会临时补图一次：进入下一步时会在微信里打开目标聊天）" if media_once else "")
         early = _stage_reply(res, name, members)
         if early:
             # 被拦下也要把会话记住：否则用户回「补昵称 / 放行」时既没有会话可重跑，
@@ -611,7 +622,9 @@ def handle_command(text: str) -> str:
         if not (0 <= idx < len(_last_candidates)):
             return "没有可编号的候选（或已过期 30 分钟），先「回复 <名>」。"
         sid = _last_candidates[idx]["username"]
-        res = pipeline.run_reply(None, _last_n or pipeline.N_DEFAULT, sid=sid, members=_last_members)
+        media_once, _last_media_once = _last_media_once, False
+        res = pipeline.run_reply(None, _last_n or pipeline.N_DEFAULT, sid=sid,
+                                 members=_last_members, media_once=media_once)
         last_result = res
         early = _stage_reply(res, _last_candidates[idx].get("display"), _last_members)
         if early:

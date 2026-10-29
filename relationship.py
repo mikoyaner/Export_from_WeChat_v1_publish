@@ -13,13 +13,25 @@ import datetime
 import hashlib
 import json
 import os
+from typing import Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _env_int(name: str, default: int, lo: Optional[int] = None) -> int:
+    """与 pipeline._env_int 同语义（这里复制一份，避免两个模块互相 import）。
+    空值/非法值一律回默认：`REPLY_X=` 或 `REPLY_X=abc` 都不该在 import 阶段崩掉整条链路。"""
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        v = int(raw) if raw else default
+    except ValueError:
+        v = default
+    return max(lo, v) if lo is not None else v
 ANALYSIS_DIR = os.path.join(os.environ.get("APPDATA") or HERE, "reply-assistant", "analysis")
 PROMPT_PATH = os.path.join(HERE, "relationship_prompt.txt")
-MIN_MESSAGES = int(os.environ.get("REPLY_ANALYSIS_MIN", "200") or 200)
+MIN_MESSAGES = _env_int("REPLY_ANALYSIS_MIN", 200, 20)
 # 分析输入比普通回复大得多（统计 + 抽样记录），报告也长；沿用 120 秒会直接超时。
-ANALYSIS_TIMEOUT_S = int(os.environ.get("REPLY_ANALYSIS_TIMEOUT_S", "360") or 360)
+ANALYSIS_TIMEOUT_S = _env_int("REPLY_ANALYSIS_TIMEOUT_S", 360, 30)
 # 实测（deepseek-v4-pro-0813）：思考会吃满 max_tokens 导致 content 为空（finish=length）。
 # 默认第一次就关思考，省掉一次"思考到 3000 token"的无效调用；换模型若不认这个字段就设 0。
 ANALYSIS_DISABLE_THINKING = (os.environ.get("REPLY_ANALYSIS_DISABLE_THINKING", "1").strip()
@@ -29,9 +41,9 @@ ANALYSIS_DISABLE_THINKING = (os.environ.get("REPLY_ANALYSIS_DISABLE_THINKING", "
 # finish=length、content 空 —— 之前"思考常要 3~6k、8000 够用"是估的，估错了。
 # 所以默认给 16000 留余量；调的依据是 logs/media_diag.log 里 `llm usage ... reasoning=` 那行。
 # 设为 0 表示跟随 REPLY_LLM_MAX_TOKENS。
-ANALYSIS_MAX_TOKENS = int(os.environ.get("REPLY_ANALYSIS_MAX_TOKENS", "16000") or 16000)
+ANALYSIS_MAX_TOKENS = _env_int("REPLY_ANALYSIS_MAX_TOKENS", 16000, 0)
 # 4 万字对关系评估是过量：24k 已足够覆盖 800 条里的代表性对话，且显著降低超时概率。
-MAX_TRANSCRIPT = int(os.environ.get("REPLY_ANALYSIS_MAX_CHARS", "24000") or 24000)
+MAX_TRANSCRIPT = _env_int("REPLY_ANALYSIS_MAX_CHARS", 24000, 2000)
 
 DEFAULT_PROMPT = """你是一名专业的微信社交关系分析师。你的任务是基于用户提供的微信聊天记录文本：
 1. 先自动识别双方属于哪种关系场景

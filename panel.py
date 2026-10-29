@@ -9,10 +9,18 @@
 import html
 import json
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pipeline
 import feishu_adapter
+
+
+# 面板跑一条命令要几十秒、也真的会花钱；ThreadingHTTPServer 会真并发。
+# 而 handle_command 用的是模块全局（_last_*、last_result），并发就会串号：
+# 两个标签页同时提交时，A 标签页可能看到 B 联系人的脱敏上下文。
+# 面板是备用入口，串行最省事：拿不到锁立刻回 409，而不是让用户等一个会串号的结果。
+_RUN_LOCK = threading.Lock()
 
 
 PAGE = """<!doctype html><meta charset=utf-8><title>AI 微信回复助手 · 本地面板</title>
@@ -77,6 +85,17 @@ class H(BaseHTTPRequestHandler):
         if self.path != "/run":
             self._send(404, b'{"error":"not found"}', "application/json")
             return
+        if not _RUN_LOCK.acquire(blocking=False):
+            body = json.dumps({"ok": False, "reply": "正在处理另一条命令，稍后再试",
+                               "context": "", "answer": None}, ensure_ascii=False)
+            self._send(409, body.encode("utf-8"), "application/json")
+            return
+        try:
+            self._run()
+        finally:
+            _RUN_LOCK.release()
+
+    def _run(self):
         try:
             n = int(self.headers.get("Content-Length", 0))
         except ValueError:

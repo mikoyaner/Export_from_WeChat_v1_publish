@@ -104,10 +104,22 @@ const ts = () => new Date().toTimeString().slice(0, 8);
 // 是消息没到（连接断了）、还是到了但链路慢/挂了。窗口里看不看得见不重要。
 const LOG_DIR = resolvePath(process.env.REPLY_LOG_DIR || 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'feishu_entry.log');
+// feishu_entry.log 含命令原文，会无限增长（media_diag.log 由 Rust 侧自己轮转）。
+// 每 200 行查一次大小，超过 5MB 就把旧的改名成 .1（Windows 上 rename 不能覆盖，先 unlink）。
+const LOG_MAX_BYTES = Number(process.env.REPLY_LOG_MAX_BYTES || 5 * 1024 * 1024);
+let _logWrites = 0;
 function fileWrite(line) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     fs.appendFileSync(LOG_FILE, line + '\n', 'utf8');
+    if (++_logWrites % 200 === 0) {
+      try {
+        if (fs.statSync(LOG_FILE).size > LOG_MAX_BYTES) {
+          try { fs.unlinkSync(LOG_FILE + '.1'); } catch { /* 不存在就跳过 */ }
+          fs.renameSync(LOG_FILE, LOG_FILE + '.1');
+        }
+      } catch { /* 轮转失败不影响写日志 */ }
+    }
   } catch (e) {
     // 写日志失败绝不能带走链路
   }
@@ -273,9 +285,55 @@ async function checkAccountSwitch({ announce = false } = {}) {
 // 飞书会重投事件，按 message_id 去重。用 Map 存时间戳并按 LRU 淘汰：
 // 以前是 Set + 满 500 条 clear() —— 一次清空等于把最近 500 条里除最新一条以外的
 // 全部忘掉，长跑进程遇到重投就会重放历史命令（重复导出、重复计费、重复推送）。
+// **并且要落盘**：只在内存里的话，入口重启 Map 就空了，而飞书断线重连时 SDK 可能重投
+// 断线期间的事件 —— 同一条「回复 张三 30」会被当成新命令再跑一遍（重复导出/计费/推送）。
+// 用 JSONL 追加（一行一个 {i,t}），启动时读回最近 SEEN_MAX 条；文件过大只读尾部。
+const SEEN_FILE = path.join(process.env.APPDATA || __dirname, 'reply-assistant', 'seen_ids.jsonl');
 const seen = new Map();
-const SEEN_TTL_MS = 6 * 3600 * 1000;   // 6 小时前的 message_id 不再需要
+const SEEN_TTL_MS = 24 * 3600 * 1000;
 const SEEN_MAX = 2000;
+
+function loadSeen() {
+  try {
+    if (!fs.existsSync(SEEN_FILE)) return 0;
+    const st = fs.statSync(SEEN_FILE);
+    let buf;
+    if (st.size > 2 * 1024 * 1024) {   // 只读尾部 2MB；第一行可能是半条，解析失败会被跳过
+      const fd = fs.openSync(SEEN_FILE, 'r');
+      buf = Buffer.alloc(2 * 1024 * 1024);
+      fs.readSync(fd, buf, 0, buf.length, st.size - buf.length);
+      fs.closeSync(fd);
+    } else {
+      buf = fs.readFileSync(SEEN_FILE);
+    }
+    const cutoff = Date.now() - SEEN_TTL_MS;
+    for (const line of buf.toString('utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const o = JSON.parse(line);
+        if (o && o.i && Number(o.t) >= cutoff) seen.set(String(o.i), Number(o.t));
+      } catch { /* 半行/坏行跳过 */ }
+    }
+    while (seen.size > SEEN_MAX) seen.delete(seen.keys().next().value);
+    return seen.size;
+  } catch { return 0; }
+}
+
+function recordSeen(id) {
+  const t = Date.now();
+  seen.set(id, t);
+  const cutoff = t - SEEN_TTL_MS;
+  for (const [k, ts] of seen) {   // Map 按插入顺序：先删过期，再按最旧淘汰，绝不整集清空
+    if (seen.size <= SEEN_MAX && ts >= cutoff) break;
+    seen.delete(k);
+  }
+  try {
+    fs.mkdirSync(path.dirname(SEEN_FILE), { recursive: true });
+    fs.appendFile(SEEN_FILE, JSON.stringify({ i: id, t }) + '\n', () => {});
+  } catch { /* 落盘失败不影响收消息 */ }
+}
+
+loadSeen();
 let running = 0;
 const waiting = [];
 
@@ -442,15 +500,7 @@ async function onMessage(data) {
   const senderOpenId = (data.sender && data.sender.sender_id && data.sender.sender_id.open_id) || '';
   const messageId = msg.message_id || '';
   if (!messageId || seen.has(messageId)) return;
-  seen.set(messageId, Date.now());
-  if (seen.size > SEEN_MAX) {
-    const cutoff = Date.now() - SEEN_TTL_MS;
-    for (const [k, ts] of seen) {
-      // Map 按插入顺序迭代：先删过期的，再按最旧淘汰，绝不整集清空
-      if (seen.size <= SEEN_MAX && ts >= cutoff) break;
-      seen.delete(k);
-    }
-  }
+  recordSeen(messageId);
 
   const reason = gate(msg, senderOpenId);
   if (reason) {
@@ -487,7 +537,7 @@ async function onMessage(data) {
 }
 
 // 被 require 时（回归测试 runBridge/gate/并发池）只暴露函数，不建长连接
-module.exports = { runBridge, killTree, gate, submit, selfCheck,
+module.exports = { runBridge, killTree, gate, submit, selfCheck, loadSeen, recordSeen, logFileLine: fileWrite,
                    probeAccount, accountText, checkAccountSwitch,
                    paths: () => ({ exporterBin, dataRoot, wordlistDir, bridgePy }),
                    poolStats: () => ({ running, waiting: waiting.length, MAX_RUN, MAX_QUEUE }) };

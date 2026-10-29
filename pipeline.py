@@ -670,13 +670,13 @@ def ensure_keys(rescan: bool) -> bool:
 VLM_READABLE_EXT = {"jpg", "jpeg", "png", "webp"}
 # 出境字节闸门：一张手机原图能到 8–15 MB，base64 后 ×1.33，多模态按 token 计费时会烧穿配额，
 # 而且「一张 4K 截图」和「四张小图」的隐私面完全不是一个量级。超了就不发，并在状态里说明。
-VLM_MAX_IMAGE_BYTES = int(os.environ.get("REPLY_VLM_MAX_IMAGE_BYTES", str(4 * 1024 * 1024)))
-VLM_MAX_TOTAL_BYTES = int(os.environ.get("REPLY_VLM_MAX_TOTAL_BYTES", str(12 * 1024 * 1024)))
+VLM_MAX_IMAGE_BYTES = _env_int("REPLY_VLM_MAX_IMAGE_BYTES", 4 * 1024 * 1024, 1024)
+VLM_MAX_TOTAL_BYTES = _env_int("REPLY_VLM_MAX_TOTAL_BYTES", 12 * 1024 * 1024, 1024)
 # 一次请求带几张：用户实测「4 张一批 + 全局编号」顺序与内容都对，所以走纯批量不重试。
-VLM_BATCH_SIZE = max(1, int(os.environ.get("REPLY_VLM_BATCH_SIZE", "4") or 4))
+VLM_BATCH_SIZE = _env_int("REPLY_VLM_BATCH_SIZE", 4, 1, 12)
 # 不给 max_tokens 时服务端默认值会截断长描述（图里逐字照抄文字很容易超）
-VLM_MAX_TOKENS = int(os.environ.get("REPLY_VLM_MAX_TOKENS", "2000") or 2000)
-VLM_TIMEOUT_S = int(os.environ.get("REPLY_VLM_TIMEOUT_S", "120"))
+VLM_MAX_TOKENS = _env_int("REPLY_VLM_MAX_TOKENS", 2000, 0)
+VLM_TIMEOUT_S = _env_int("REPLY_VLM_TIMEOUT_S", 120, 5)
 
 VLM_ASK = (
     "这些是微信聊天里的图片，共 {n} 张，编号从 图片 {start} 到 图片 {end}"
@@ -691,10 +691,7 @@ VLM_ASK = (
 
 
 def _vlm_max_images() -> int:
-    try:
-        return max(0, int(os.environ.get("REPLY_VLM_MAX_IMAGES", "12")))
-    except ValueError:
-        return 12
+    return _env_int("REPLY_VLM_MAX_IMAGES", 12, 0)
 
 
 def collect_images(exp: dict, max_n: int, d: Optional["Desensitizer"] = None,
@@ -839,8 +836,8 @@ def describe_images(exp: dict, d: "Desensitizer") -> tuple:
     模型只描述图片，"谁在什么时候发的"由本机按编号贴：编号顺序是我们自己排的，
     所以归属是结构性的，不依赖模型复述发送者。一批失败只影响那一批。"""
     info = {"vlm_configured": False, "images_readable": 0, "images_selected": 0,
-            "over_cap": 0, "skipped_oversized": 0, "consent": False, "skipped": "",
-            "batches": 0, "described": 0, "empty": 0, "errors": []}
+            "over_cap": 0, "skipped_oversized": 0, "read_failed": 0, "consent": False,
+            "skipped": "", "batches": 0, "described": 0, "empty": 0, "errors": []}
     max_n = _vlm_max_images()
     cap_stats = {}
     items = collect_images(exp, max_n, d, cap_stats)
@@ -865,6 +862,7 @@ def describe_images(exp: dict, d: "Desensitizer") -> tuple:
     import mimetypes
     # 先按字节闸筛一遍：单图超限或总量超限的这张不发，其余继续
     picked = []
+    unreadable = []
     used = 0
     for it in items:
         p = it["path"]
@@ -875,8 +873,11 @@ def describe_images(exp: dict, d: "Desensitizer") -> tuple:
                 with open(p, "rb") as fh:
                     raw = fh.read()
         except OSError as e:
-            info["skipped"] = f"read_failed:{e}"
-            return None, info
+            # 一张读不出来（被微信占用 / 刚被清理）不该连坐其余图片：跳过这张，其余照发。
+            info["read_failed"] += 1
+            unreadable.append(it)
+            print(f"[vlm] 读不出这张图（{type(e).__name__}），已跳过", file=sys.stderr)
+            continue
         if raw is None:
             info["skipped_oversized"] += 1
             continue
@@ -891,6 +892,8 @@ def describe_images(exp: dict, d: "Desensitizer") -> tuple:
         return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
 
     lines = []
+    for it in unreadable:
+        lines.append(f"- {it['sender']} · {_fmt_ts(it['time'])} 发的图：（本机读取失败，已跳过）")
     for start in range(0, len(picked), VLM_BATCH_SIZE):
         chunk = picked[start:start + VLM_BATCH_SIZE]
         n0 = start + 1
