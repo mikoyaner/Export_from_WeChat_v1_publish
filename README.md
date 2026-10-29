@@ -30,20 +30,54 @@
 | 微信 4.x（Windows） | 必须在本机**登录并运行**（数据库密钥只在运行中的进程内存里） |
 | Rust 1.75+ / MSVC 生成工具 | 仅编译导出器时需要 |
 
-## 仓库里**没有**、需要你自己准备的东西
+## 运行前准备清单（照这个买齐，缺哪个对应功能就废）
 
-仓库只放源码与文档，下面这些按体积/隐私原因不入库（都在 `.gitignore` 里）：
+仓库只放源码与文档；下面这些东西按体积/版权原因不入库。**按序号做完即可跑**。
 
-| 缺什么 | 怎么补 |
-|---|---|
-| `bin/reply-exporter.exe` | **去 [Releases](../../releases/latest) 下载 `reply-exporter.exe` 放进 `bin/`**（Windows x64，未签名；首次运行 Windows 可能提示“已保护你的电脑”→ 更多信息 → 仍要运行）。没有可用 Release 时再自行编译，见下文「构建」 |
-| `bin/ffmpeg.exe` | 自行获取 ffmpeg 7.x **full** 构建（需 HEVC 解码，用于微信 wxgf 图转换） |
-| `bin/img_helper.dll` | 可选，「补图」功能需要；**本仓库不含其源码**，不用该功能可忽略 |
-| VC++ 运行库 | 安装 Microsoft Visual C++ 2015-2022 Redistributable（x64） |
-| `vendor/`（语音 ASR） | `npm i silk-wasm sherpa-onnx-node` + SenseVoice 模型；不装则语音不转写（其余功能正常） |
-| `node_modules/` | `npm install`（飞书 SDK） |
-| `.env` | `cp config.example .env` 后填值；**永不入库** |
-| 人名词表 | 放在项目**外**的私有目录（含真实姓名），用 `REPLY_WORDLIST_DIR` 指向 |
+| # | 要准备的东西 | 从哪来（命令 / 下载页） | 放到哪 | 怎么确认好了 | 缺了会怎样 |
+|---|---|---|---|---|---|
+| 1 | **导出器** `reply-exporter.exe` | 本仓库 [Releases](../../releases/latest) 下载（Windows x64，未签名）。没有可用 Release 时才自行编译，见下文「构建」 | 项目 `bin\` | `bin\reply-exporter.exe --version` → 打印版本 + `tested WeChat` | 整条链路不可用（排查会报"找不到导出器"） |
+| 2 | **ffmpeg** `ffmpeg.exe` | https://www.gyan.dev/ffmpeg/builds/ → 选 **full** 包（与项目实测一致的是 **7.0 full_build**，需含 HEVC）。解压后只取 `bin\ffmpeg.exe` | 项目 `bin\` | `bin\ffmpeg.exe -version` → 第一行含 `7.0` 与 `full_build` | 微信 `wxgf` 动图转不了 JPG、表情转图失败（其余正常，状态行会写"未转码"） |
+| 3 | **VC++ 运行库** | 微软官方：`https://aka.ms/vs/17/release/vc_redist.x64.exe`（双击安装，按提示重启） | 系统（不是项目目录） | 能双击跑起 `reply-exporter.exe` | 启动报"找不到 VCRUNTIME140.dll" |
+| 4 | **飞书 SDK** `node_modules\` | 项目根执行 `npm install` | 项目根 `node_modules\` | `node -e "require('@larksuiteoapi/node-sdk')"` 无报错 | 飞书入口起不来（报 `Cannot find module '@larksuiteoapi/node-sdk'`） |
+| 5 | **`.env`** | `cp config.example .env` 后按下文「最小 6 项」填 | 项目根 | `python pipeline.py --diagnose` 7 个路径全 ✅ | 按缺项报错（如"未配置 REPLY_DATA_ROOT"） |
+| 6 | **人名词表**（建议） | 自建三份 `脱敏词表-*.txt`（含真实姓名，**不要放进项目**） | 项目**外**任意目录，用 `REPLY_WORDLIST_DIR` 指向 | `--diagnose` 里该路径 ✅、不发"缺词表"警告 | 人名不会被打码（出境自查可能因此拦下） |
+| 7 | **语音模型**（可选） | `powershell -ExecutionPolicy Bypass -File tools\get-asr-model.ps1`（自动从 k2-fsa/sherpa-onnx 下载）；再 `npm --prefix vendor install silk-wasm sherpa-onnx-node` | `vendor\models\sensevoice\` + `vendor\node_modules\` | 脚本末尾会打印「[通过] 模型与依赖都已就位」 | 语音不转写，其余功能正常（状态行写"语音 N 条未转写"） |
+| 8 | `bin\img_helper.dll`（可选） | **本仓库不含其源码**，只影响「补图」功能 | 项目 `bin\` | — | 「补图」不可用，用「(1) 只读本机已有」照常工作 |
+
+### `.env` 最小 6 项（其余都有默认值）
+
+```env
+# 必填：微信数据根（形如 <盘符>:/xwechat_files，可在微信 设置→文件管理 里看到）
+REPLY_DATA_ROOT=
+
+# 强烈建议：人名词表目录（放项目外）
+REPLY_WORDLIST_DIR=
+
+# 文本模型（出 A/B/C 与关系分析）
+REPLY_LLM_BASE_URL=
+REPLY_LLM_API_KEY=
+REPLY_LLM_MODEL=
+
+# 收 A/B/C 的企微群机器人 webhook
+REPLY_WECOM_WEBHOOK=
+```
+
+**飞书入口还要三行**（不填则入口拒绝启动/收不到命令）：`REPLY_FEISHU_APP_ID`、`REPLY_FEISHU_APP_SECRET`、`REPLY_FEISHU_ALLOW_OPEN_IDS`（怎么拿见 `使用说明书.md` §2.2）。
+
+填完跑：
+
+```bash
+python pipeline.py --diagnose     # 或双击 diagnose.cmd
+```
+
+---
+
+## 关于 ffmpeg 的版本
+
+与项目实测跑通的一致的是 **ffmpeg 7.0 `full_build`（gyan.dev 发行）**——必须是 **full**（含 HEVC 解码），
+`essentials` 版解不了微信的 `wxgf` 动图。如果你下的是别的 7.x full 版本，一般也能用；
+用 6.x/5.x 不保证。换版本后拿一张动画表情验证：状态行出现「表情取回 N 张」且没有再报"未转码"即正常。
 
 ## 快速开始
 
@@ -89,6 +123,7 @@ keyscan_readonly.py      只读内存扫描取密钥
 imghelper.py             可选：一次性「补图」
 panel.py                 本地面板（127.0.0.1，备用入口）
 config/脱敏规则.json      脱敏规则（不含真实人名）
+tools/get-asr-model.ps1  下载语音模型（sherpa-onnx 版，可选功能）
 native/                  Rust 工作区：reply-exporter / wcdb-native / weflow-core 等
 ```
 
