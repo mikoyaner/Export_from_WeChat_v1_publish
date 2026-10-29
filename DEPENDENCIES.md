@@ -34,13 +34,12 @@
 | Rust | 1.99.0 `stable-x86_64-pc-windows-msvc` |
 | MSVC | 14.36（含 Windows SDK 10.0.x） |
 | Windows SDK | 10.0.22000 |
-| Perl + NASM | 公开环境：装 **Strawberry Perl + NASM** 并加入 PATH（Git 自带 Perl 缺 `Locale::Maketext::Simple`，不能用）；作者本机用 `native\.tools\perl-portable`（不入库） |
+| Perl | `native\.tools\perl-portable`（不要用 Git 自带 Perl） |
 | 网络 | 首次 `cargo build` 需要联网拉 crate（本机离线缓存不完整） |
 
 ```bash
-cd native
-# Git Bash：把 Strawberry Perl 放到 PATH 前面（/usr/bin/perl 缺模块会抢先生效）
-export PATH="/c/Strawberry/perl/bin:$PATH"
+cd /d/Export_from_WeChat/Export_from_WeChat_v1/native
+source .tools/env.sh
 cargo build --release -p reply-exporter
 cp target/release/reply-exporter.exe ../bin/reply-exporter.exe
 ```
@@ -83,8 +82,9 @@ python -c "import imghelper; print(imghelper.dll_path(), imghelper.available())"
 - 项目内四件（`keyscan_readonly.py`、`bin\reply-exporter.exe`、`bin\ffmpeg.exe`、`bin\img_helper.dll`）默认按项目根自动解析，**不需要写进 `.env`**。
 - `.env` 只需要关心外部路径：`REPLY_DATA_ROOT`、`REPLY_WORDLIST_DIR`；`REPLY_CONFIG_DIR=config` 是相对项目根。三者都支持绝对路径、`%VAR%`、`~` 和相对路径；如设置了 `REPLY_PY_BIN`/`REPLY_NODE_BIN` 也要按目标机改。
 - 目标机需另装 Python 3 与 Node.js；微信数据、人名词表、密钥库不在项目内。
-- `.env` 含真实 API key；`联系人档案/` 含隐私；`native\.scratch\scan.txt` 含真实扫描密钥，不要拷到不可控介质。
-- 🔴 **`.env` 含真实凭据（模型 key / 企微 webhook / 飞书 App Secret），绝不入库、绝不外发**；若怀疑泄露，立即到对应平台重置：DashScope 控制台 / VLM 服务商控制台 / 企微群设置→群机器人 / 飞书开放平台→凭证与基础信息。
+- `.env` 含真实 API key；`联系人档案/` 含隐私；两者都不要拷到不可控介质。
+  （`native\.scratch\` 里原有一份明文扫描密钥 `scan.txt`，**已于 2026-10-24 删除**——核对过 37/37 全部存在于 `%APPDATA%\weflow-key-provider\store.json`，属纯冗余副本；日后若再生成同类扫描输出，同样不要随项目拷出）
+- 🔴 **`.env` 里四组真实凭据（DashScope / VLM 聚合站 / 企微 webhook / 飞书 App Secret）应轮换**——明文落盘过即视为可能泄露，逐项后果与轮换入口见 [SECURITY-NOTE.md](SECURITY-NOTE.md)。
 
 ## 5. 已知非独立点
 
