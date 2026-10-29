@@ -28,7 +28,7 @@
 | Python 3.10+ | **只用标准库**，无需 pip 安装 |
 | Node.js 20+ | 飞书长连接入口 + 语音转写 |
 | 微信 4.x（Windows） | 必须在本机**登录并运行**（数据库密钥只在运行中的进程内存里） |
-| Rust 1.75+ / MSVC 生成工具 + Strawberry Perl、NASM | 仅编译导出器时需要（SQLCipher 的 vendored OpenSSL 要现编） |
+| Rust 1.75+ / MSVC 生成工具 | 仅编译导出器时需要 |
 
 ## 仓库里**没有**、需要你自己准备的东西
 
@@ -36,7 +36,7 @@
 
 | 缺什么 | 怎么补 |
 |---|---|
-| `bin/reply-exporter.exe` | 编译：见下文「构建」 |
+| `bin/reply-exporter.exe` | **去 [Releases](../../releases/latest) 下载 `reply-exporter.exe` 放进 `bin/`**（Windows x64，未签名；首次运行 Windows 可能提示“已保护你的电脑”→ 更多信息 → 仍要运行）。没有可用 Release 时再自行编译，见下文「构建」 |
 | `bin/ffmpeg.exe` | 自行获取 ffmpeg 7.x **full** 构建（需 HEVC 解码，用于微信 wxgf 图转换） |
 | `bin/img_helper.dll` | 可选，「补图」功能需要；**本仓库不含其源码**，不用该功能可忽略 |
 | VC++ 运行库 | 安装 Microsoft Visual C++ 2015-2022 Redistributable（x64） |
@@ -49,12 +49,14 @@
 
 ```bash
 git clone <本仓库> && cd Export_from_WeChat_v1
-cp config.example .env         # 必填：REPLY_DATA_ROOT、文本模型三项、企微 webhook、飞书 ID/Secret/白名单；词表目录与 VLM 可后补
+cp config.example .env         # 填最少 6 项：REPLY_DATA_ROOT、REPLY_WORDLIST_DIR、两套模型、企微 webhook
 npm install                    # 飞书 SDK
 
-# 1) 编译导出器（需要 Rust + MSVC + Strawberry Perl/NASM；首次会联网拉依赖）
-cd native && cargo build --release -p reply-exporter    # 环境细节见 DEPENDENCIES.md §2
-cp target/release/reply-exporter.exe ../bin/ && cd ..
+# 1) 放好导出器：优先从 Releases 下载（文件就是 reply-exporter.exe）
+#    放到 bin/ 即可；下载页：../../releases/latest
+#    没有 Release 或想自己编（需要 Rust + MSVC，首次会联网拉依赖）：
+#    cd native && source .tools/env.sh && cargo build --release -p reply-exporter
+#    cp target/release/reply-exporter.exe ../bin/ && cd ..
 
 # 2) 自检（零花费：不调用任何云端接口）
 python pipeline.py --diagnose      # 或双击 diagnose.cmd
@@ -105,6 +107,7 @@ native/                  Rust 工作区：reply-exporter / wcdb-native / weflow-
 - 微信未落盘的媒体取不到（Mars 私有协议，消息里的地址不是 HTTP URL）。
 - 「@群昵称」脱敏依赖人名词表快照，新成员需补表；漏掉时出境自查会拦下并提示。
 - 未识别消息类型降级为 `[非文本消息]`。更多边界见 `使用说明书.md` 第 9 章。
+- **导出器与微信版本绑定**：Release 里的 exe 只实测过某个微信版本（当前 4.1.15.x）。微信升级后取密钥的内存布局与库结构可能变化，先跑 `bin\reply-exporter.exe --version` 对照；不匹配时请回到 Releases 看是否有新构建。
 
 ## 免责声明
 

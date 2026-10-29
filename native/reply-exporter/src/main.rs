@@ -8,6 +8,7 @@
 //!
 //! 用法：
 //!   reply-exporter [数据根目录] --name "<联系人名/群名>" [--n 30] [--sid <username>] [--pretty]
+//!   reply-exporter --version           # 版本 / 构建来源 / 实测适配的微信版本
 //!   reply-exporter [数据根目录] --list-accounts
 //! 数据根目录（如 <微信数据根>）可选，用于把账号限定在其下；缺省用 keystore 里全部账号。
 //! 命中多个同名 → 打印候选 JSON 并退出码 2（调用方据此让用户选编号）；0 个 → 退出码 4。
@@ -415,12 +416,13 @@ struct Args {
     img_out: Option<String>,
     voice_out: Option<String>,
     ffmpeg: Option<String>,
+    version: bool,
     pretty: bool,
 }
 
 fn parse_args() -> Args {
     let argv: Vec<String> = std::env::args().collect();
-    let mut a = Args { data_root: None, name: None, sid: None, top: false, nongroup: false, n: 30, list_accounts: false, dump_schema: false, probe_media: false, at_mentions: false, sessions: false, whoami: false, derive_image_key: false, img_out: None, voice_out: None, ffmpeg: None, pretty: false };
+    let mut a = Args { data_root: None, name: None, sid: None, top: false, nongroup: false, n: 30, list_accounts: false, dump_schema: false, probe_media: false, at_mentions: false, sessions: false, whoami: false, derive_image_key: false, img_out: None, voice_out: None, ffmpeg: None, version: false, pretty: false };
     let mut i = 1;
     let mut positional_done = false;
     while i < argv.len() {
@@ -441,6 +443,7 @@ fn parse_args() -> Args {
             "--probe-media" => a.probe_media = true,
             "--at-mentions" => a.at_mentions = true,
             "--sessions" => a.sessions = true,
+            "--version" | "-V" => a.version = true,
             "--pretty" => a.pretty = true,
             _ => {
                 if !s.starts_with("--") && !positional_done && a.data_root.is_none() {
@@ -1112,8 +1115,33 @@ fn write_media_diag(lines: &[String]) {
     }
 }
 
+/// 本版导出器**实测适配**的微信版本范围。
+/// 微信升级后数据库 schema 与取密钥用的内存布局常量都可能变；用户反馈问题时先对一下这个值。
+const TESTED_WECHAT: &str = "4.1.15.x";
+
+/// 构建来源（CI 传入；本地编译为 unknown）。用来把 Release 里的 exe 和源码对应起来。
+const BUILD_COMMIT: &str = match option_env!("REPLY_EXPORTER_BUILD_COMMIT") {
+    Some(v) => v,
+    None => "unknown",
+};
+const BUILD_TIME: &str = match option_env!("REPLY_EXPORTER_BUILD_TIME") {
+    Some(v) => v,
+    None => "unknown",
+};
+
+fn print_version() {
+    println!("reply-exporter {}", env!("CARGO_PKG_VERSION"));
+    println!("commit: {BUILD_COMMIT}");
+    println!("built:  {BUILD_TIME}");
+    println!("tested WeChat: {TESTED_WECHAT}");
+}
+
 fn main() -> Result<()> {
     let args = parse_args();
+    if args.version {
+        print_version();
+        return Ok(());
+    }
     let mut ks = KeyStore::load_default();
     if args.list_accounts {
         let list: Vec<Value> = ks

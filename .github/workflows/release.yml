@@ -1,0 +1,110 @@
+name: build-exporter
+
+# 触发：
+#   - 推 tag（v0.1.1 这类）        → 构建 + 发 Release
+#   - 手动 Run workflow           → 构建 + 存 Actions 产物；填了 tag 才发 Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "发布用的版本名（如 v0.1.1）。留空 = 只产出 Actions 产物，不发 Release"
+        required: false
+        default: ""
+
+permissions:
+  contents: write   # 发 Release 需要写权限
+
+jobs:
+  build:
+    # windows-latest 自带 MSVC 构建工具和 Rust stable；nasm 若缺由下面这步补装。
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链自检（Rust / Perl / NASM）
+        shell: pwsh
+        run: |
+          cargo --version
+          rustc --version
+          perl -v | Select-Object -First 2
+          if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {
+            Write-Host "nasm 不在 PATH，用 choco 安装…"
+            choco install nasm --no-progress -y
+            $env:PATH = "C:\Program Files\NASM;$env:PATH"
+            # 让后续步骤也拿到（写入 GITHUB_PATH）
+            "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+          nasm -v
+
+      - name: 缓存 Cargo（含 vendored OpenSSL 编译产物）
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - name: 测试（20 + 14 项）
+        working-directory: native
+        run: cargo test --release -p reply-exporter -p weflow-core
+
+      - name: 构建（把 commit 与时间嵌进 --version）
+        working-directory: native
+        shell: pwsh
+        run: |
+          $env:REPLY_EXPORTER_BUILD_COMMIT = "${{ github.sha }}"
+          $env:REPLY_EXPORTER_BUILD_TIME = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          cargo build --release -p reply-exporter
+
+      - name: 版本输出自检
+        shell: pwsh
+        run: |
+          $out = & native\target\release\reply-exporter.exe --version
+          $out
+          if (-not ($out -match "tested WeChat")) { throw "版本输出缺少 tested WeChat 行" }
+          if (-not ($out -match "${{ github.sha }}")) { throw "版本输出里没有本次 commit" }
+
+      - name: 打包（exe + SHA256 + 说明）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item native\target\release\reply-exporter.exe dist\reply-exporter.exe
+          $h = (Get-FileHash dist\reply-exporter.exe -Algorithm SHA256).Hash.ToLower()
+          "reply-exporter.exe  $h" | Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          $lines = @(
+            "reply-exporter.exe (Windows x64, unsigned)",
+            "commit: ${{ github.sha }}",
+            "tested WeChat: 4.1.15.x  <-- 微信升级后本程序可能失效，先跑 --version 对照",
+            "usage: 放进项目的 bin\ 目录，然后 python pipeline.py --diagnose",
+            "sha256: $h"
+          )
+          $lines | Set-Content -Encoding utf8 dist\README.txt
+
+      - name: 上传 Actions 产物（任何触发都留一份）
+        uses: actions/upload-artifact@v4
+        with:
+          name: reply-exporter-windows-x64
+          path: dist/*
+          retention-days: 90
+
+      - name: 发 Release（推 tag，或手动填了 tag）
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: reply-exporter ${{ inputs.tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            ## reply-exporter（Windows x64，未签名二进制）
+
+            - 构建自 commit：`${{ github.sha }}`
+            - 实测适配微信：**4.1.15.x**（微信升级后取密钥的内存布局与库结构可能变化，先跑 `--version` 对照）
+            - SHA256 见 `SHA256SUMS.txt`
+
+            ### 用法
+            1. 下载 `reply-exporter.exe`，放进项目 `bin\`（覆盖旧文件）
+            2. `python pipeline.py --diagnose` → 判据：退出码 0、7 个路径全 ✅
+
+            > 未做代码签名，首次运行 Windows 可能提示“已保护你的电脑”：更多信息 → 仍要运行。
+            > 校验哈希：`certutil -hashfile reply-exporter.exe SHA256`
