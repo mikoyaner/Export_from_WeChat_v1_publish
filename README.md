@@ -82,7 +82,7 @@ python pipeline.py --diagnose     # 或双击 diagnose.cmd
 ## 快速开始
 
 ```bash
-git clone <本仓库> && cd Export_from_WeChat_v1
+git clone <本仓库> && cd Export_from_WeChat_v1_publish
 cp config.example .env         # 填最少 6 项：REPLY_DATA_ROOT、REPLY_WORDLIST_DIR、两套模型、企微 webhook
 npm install                    # 飞书 SDK
 
